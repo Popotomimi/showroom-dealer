@@ -16,13 +16,10 @@ export default function Home() {
   const [chat, setChat] = useState<ChatMessage[]>([]);
   const [listening, setListening] = useState<boolean>(false);
   const [speaking, setSpeaking] = useState<boolean>(false);
-  const [selectedVoice, setSelectedVoice] =
-    useState<SpeechSynthesisVoice | null>(null);
   const [recognition, setRecognition] = useState<SpeechRecognition | null>(
     null
   );
 
-  // ✅ Declarar sendMessage antes do useEffect
   const sendMessage = async (message: string): Promise<void> => {
     const res = await fetch("/api/chat", {
       method: "POST",
@@ -34,14 +31,19 @@ export default function Home() {
     const reply: string = data.reply;
 
     setChat((prev) => [...prev, { role: "assistant", content: reply }]);
-
     setSpeaking(true);
 
-    const utterance = new SpeechSynthesisUtterance(reply);
-    utterance.lang = "pt-BR";
-    if (selectedVoice) utterance.voice = selectedVoice;
+    const ttsRes = await fetch("/api/tts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: reply }),
+    });
 
-    utterance.onend = () => {
+    const audioBlob = await ttsRes.blob();
+    const audioUrl = URL.createObjectURL(audioBlob);
+    const audio = new Audio(audioUrl);
+
+    audio.onended = () => {
       setSpeaking(false);
       if (recognition) {
         recognition.start();
@@ -49,27 +51,10 @@ export default function Home() {
       }
     };
 
-    window.speechSynthesis.speak(utterance);
+    audio.play();
   };
 
   useEffect(() => {
-    const loadVoices = (): void => {
-      const availableVoices: SpeechSynthesisVoice[] =
-        window.speechSynthesis.getVoices();
-      const mariaVoice = availableVoices.find(
-        (v) => v.lang === "pt-BR" && v.name.toLowerCase().includes("maria")
-      );
-      if (mariaVoice) {
-        setSelectedVoice(mariaVoice);
-      } else {
-        const brVoice = availableVoices.find((v) => v.lang === "pt-BR");
-        if (brVoice) setSelectedVoice(brVoice);
-      }
-    };
-
-    loadVoices();
-    window.speechSynthesis.onvoiceschanged = loadVoices;
-
     const SpeechRecognitionConstructor =
       window.SpeechRecognition || window.webkitSpeechRecognition;
 
