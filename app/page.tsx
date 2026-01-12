@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from "react";
 import Lottie from "lottie-react";
+import { motion } from "framer-motion";
+import { FaArrowDown, FaRedoAlt } from "react-icons/fa";
 
 import listeningAnimation from "../public/animations/assistant-listening.json";
 import speakingAnimation from "../public/animations/assistant-speaking.json";
@@ -21,6 +23,8 @@ export default function Home() {
   );
 
   const sendMessage = async (message: string): Promise<void> => {
+    setSpeaking(true);
+
     const res = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -31,7 +35,6 @@ export default function Home() {
     const reply: string = data.reply;
 
     setChat((prev) => [...prev, { role: "assistant", content: reply }]);
-    setSpeaking(true);
 
     const ttsRes = await fetch("/api/tts", {
       method: "POST",
@@ -52,6 +55,17 @@ export default function Home() {
     };
 
     audio.play();
+  };
+
+  const resetConversation = async (): Promise<void> => {
+    await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reset: true }),
+    });
+    setChat([]); // limpa também no frontend
+    setListening(false);
+    setSpeaking(false);
   };
 
   useEffect(() => {
@@ -91,8 +105,23 @@ export default function Home() {
     return stopAnimation;
   };
 
+  const getButtonText = (): string => {
+    if (speaking) return "Respondendo...";
+    if (listening) return "Ouvindo...";
+    return "Iniciar Conversa";
+  };
+
   return (
     <div className="flex flex-col items-center justify-center min-h-screen text-zinc-900 bg-gray-100 p-6">
+      {/* Ícone de reset no topo */}
+      <div className="absolute top-4 right-4">
+        <button
+          onClick={resetConversation}
+          className="p-2 bg-red-500 text-white rounded-full shadow-md hover:bg-red-600 transition">
+          <FaRedoAlt size={20} />
+        </button>
+      </div>
+
       <h1 className="text-8xl font-bold">
         Dealer <span className="text-amber-400">Shop</span>
       </h1>
@@ -102,11 +131,29 @@ export default function Home() {
         <Lottie animationData={getAnimation()} loop={true} />
       </div>
 
-      <button
+      {!listening && !speaking && (
+        <motion.div
+          initial={{ y: -10 }}
+          animate={{ y: [0, -10, 0] }}
+          transition={{ repeat: Infinity, duration: 1.2 }}
+          className="mb-2 text-amber-500">
+          <FaArrowDown size={30} />
+        </motion.div>
+      )}
+
+      <motion.button
         onClick={startListening}
-        className="px-6 py-3 bg-blue-600 text-white rounded-lg shadow-md hover:bg-blue-700 transition">
-        {listening ? "Ouvindo..." : "Iniciar Conversa"}
-      </button>
+        animate={
+          listening
+            ? { scale: [1, 1.05, 1] }
+            : speaking
+            ? { rotate: [0, 2, -2, 0] }
+            : {}
+        }
+        transition={{ repeat: Infinity, duration: 1 }}
+        className="px-6 py-3 bg-amber-300 text-black font-bold cursor-pointer rounded-lg shadow-md hover:bg-amber-400 transition">
+        {getButtonText()}
+      </motion.button>
     </div>
   );
 }
