@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Lottie from "lottie-react";
 import { motion } from "framer-motion";
 import { FaArrowDown, FaRedoAlt } from "react-icons/fa";
@@ -21,81 +21,129 @@ export default function Home() {
   const [recognition, setRecognition] = useState<SpeechRecognition | null>(
     null
   );
+  const autoRespondRef = useRef<boolean>(false);
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
 
   const sendMessage = async (message: string): Promise<void> => {
-    setSpeaking(true);
+    try {
+      setSpeaking(true);
 
-    const res = await fetch("/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message }),
-    });
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message }),
+      });
 
-    const data: { reply: string } = await res.json();
-    const reply: string = data.reply;
+      if (!res.ok) throw new Error("Erro na requisição /api/chat");
 
-    setChat((prev) => [...prev, { role: "assistant", content: reply }]);
+      const data: { reply: string } = await res.json();
+      const reply: string = data.reply;
 
-    const ttsRes = await fetch("/api/tts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: reply }),
-    });
+      setChat((prev) => [...prev, { role: "assistant", content: reply }]);
 
-    const audioBlob = await ttsRes.blob();
-    const audioUrl = URL.createObjectURL(audioBlob);
-    const audio = new Audio(audioUrl);
+      const ttsRes = await fetch("/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: reply }),
+      });
 
-    audio.onended = () => {
+      if (!ttsRes.ok) throw new Error("Erro na requisição /api/tts");
+
+      const audioBlob = await ttsRes.blob();
+      const audioUrl = URL.createObjectURL(audioBlob);
+      const audio = new Audio(audioUrl);
+
+      audio.onended = () => {
+        setSpeaking(false);
+
+        // Verifica se a resposta contém "entrada do showroom esta liberada"
+        if (reply.toLowerCase().includes("entrada do showroom esta liberada")) {
+          autoRespondRef.current = false; // Para de responder automaticamente
+        } else if (autoRespondRef.current) {
+          // Se está em modo auto-responder, pressiona o botão automaticamente
+          setTimeout(() => {
+            if (recognitionRef.current) {
+              recognitionRef.current.abort(); // Encerra qualquer reconhecimento anterior
+              setTimeout(() => {
+                recognitionRef.current?.start();
+                setListening(true);
+              }, 100);
+            }
+          }, 1000); // Delay de 1 segundo antes de responder
+        } else {
+          // Primeira vez, aguarda o usuário responder
+          if (recognitionRef.current) {
+            recognitionRef.current.abort(); // Encerra qualquer reconhecimento anterior
+            setTimeout(() => {
+              recognitionRef.current?.start();
+              setListening(true);
+            }, 100);
+          }
+        }
+      };
+
+      audio.play();
+    } catch (error) {
+      console.error("Erro em sendMessage:", error);
       setSpeaking(false);
-      if (recognition) {
-        recognition.start();
-        setListening(true);
-      }
-    };
-
-    audio.play();
+      setListening(false);
+    }
   };
 
   const resetConversation = async (): Promise<void> => {
-    await fetch("/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ reset: true }),
-    });
-    setChat([]); // limpa também no frontend
-    setListening(false);
-    setSpeaking(false);
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reset: true }),
+      });
+
+      if (!res.ok) throw new Error("Erro ao resetar conversa");
+
+      setChat([]);
+      setListening(false);
+      setSpeaking(false);
+    } catch (error) {
+      console.error("Erro em resetConversation:", error);
+    }
   };
 
   useEffect(() => {
-    const SpeechRecognitionConstructor =
-      window.SpeechRecognition || window.webkitSpeechRecognition;
+    try {
+      const SpeechRecognitionConstructor =
+        window.SpeechRecognition || window.webkitSpeechRecognition;
 
-    if (SpeechRecognitionConstructor) {
-      const recog: SpeechRecognition = new SpeechRecognitionConstructor();
-      recog.lang = "pt-BR";
-      recog.continuous = false;
-      recog.interimResults = false;
+      if (SpeechRecognitionConstructor) {
+        const recog: SpeechRecognition = new SpeechRecognitionConstructor();
+        recog.lang = "pt-BR";
+        recog.continuous = false;
+        recog.interimResults = false;
 
-      recog.onresult = async (event: SpeechRecognitionEvent) => {
-        const transcript: string = event.results[0][0].transcript;
-        setChat((prev) => [...prev, { role: "user", content: transcript }]);
-        await sendMessage(transcript);
-      };
+        recog.onresult = async (event: SpeechRecognitionEvent) => {
+          const transcript: string = event.results[0][0].transcript;
+          setChat((prev) => [...prev, { role: "user", content: transcript }]);
+          autoRespondRef.current = true; // Ativa modo auto-responder após primeira mensagem
+          await sendMessage(transcript);
+        };
 
-      recog.onend = () => {
-        setListening(false);
-      };
+        recog.onend = () => {
+          setListening(false);
+        };
 
-      setTimeout(() => setRecognition(recog), 0);
+        setTimeout(() => {
+          setRecognition(recog);
+          recognitionRef.current = recog;
+        }, 0);
+      }
+    } catch (error) {
+      console.error("Erro ao inicializar SpeechRecognition:", error);
     }
   }, []);
 
   const startListening = (): void => {
-    if (recognition) {
+    if (recognitionRef.current) {
       setListening(true);
-      recognition.start();
+      recognitionRef.current.start();
     }
   };
 
