@@ -19,15 +19,13 @@ export default function Home() {
   const [listening, setListening] = useState<boolean>(false);
   const [speaking, setSpeaking] = useState<boolean>(false);
   const [recognition, setRecognition] = useState<SpeechRecognition | null>(
-    null
+    null,
   );
   const autoRespondRef = useRef<boolean>(false);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
 
   const sendMessage = async (message: string): Promise<void> => {
     try {
-      setSpeaking(true);
-
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -53,12 +51,36 @@ export default function Home() {
       const audioUrl = URL.createObjectURL(audioBlob);
       const audio = new Audio(audioUrl);
 
+      audio.onplay = () => {
+        setSpeaking(true);
+      };
+
       audio.onended = () => {
         setSpeaking(false);
 
-        // Verifica se a resposta contém "entrada do showroom esta liberada"
-        if (reply.toLowerCase().includes("entrada do showroom esta liberada")) {
-          autoRespondRef.current = false; // Para de responder automaticamente
+        const normalizedReply = reply
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .toLowerCase();
+
+        const palavrasChave = [
+          ["entrada", "showroom", "liberad"], // pega liberada, liberado, liberar...
+          ["entrar", "showroom", "liberad"],
+        ];
+
+        const contemTodasPalavras = (
+          frase: string,
+          grupo: string[],
+        ): boolean => {
+          return grupo.every((palavra: string) => frase.includes(palavra));
+        };
+
+        const devePararAutoResponder = palavrasChave.some((grupo) =>
+          contemTodasPalavras(normalizedReply, grupo),
+        );
+
+        if (devePararAutoResponder) {
+          autoRespondRef.current = false;
         } else if (autoRespondRef.current) {
           // Se está em modo auto-responder, pressiona o botão automaticamente
           setTimeout(() => {
@@ -69,7 +91,7 @@ export default function Home() {
                 setListening(true);
               }, 100);
             }
-          }, 1000); // Delay de 1 segundo antes de responder
+          }, 200);
         } else {
           // Primeira vez, aguarda o usuário responder
           if (recognitionRef.current) {
@@ -122,7 +144,7 @@ export default function Home() {
         recog.onresult = async (event: SpeechRecognitionEvent) => {
           const transcript: string = event.results[0][0].transcript;
           setChat((prev) => [...prev, { role: "user", content: transcript }]);
-          autoRespondRef.current = true; // Ativa modo auto-responder após primeira mensagem
+          autoRespondRef.current = true;
           await sendMessage(transcript);
         };
 
@@ -160,12 +182,13 @@ export default function Home() {
   };
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen text-zinc-900 bg-gray-100 p-6">
+    <div className="flex flex-col items-center justify-center min-h-screen text-zinc-900 bg-gray-100 p-6 py-54 relative">
       {/* Ícone de reset no topo */}
       <div className="absolute top-4 right-4">
         <button
           onClick={resetConversation}
-          className="p-2 bg-red-500 text-white rounded-full shadow-md hover:bg-red-600 transition">
+          className="p-2 bg-red-500 text-white cursor-pointer rounded-full shadow-md hover:bg-red-600 transition"
+        >
           <FaRedoAlt size={20} />
         </button>
       </div>
@@ -184,7 +207,8 @@ export default function Home() {
           initial={{ y: -10 }}
           animate={{ y: [0, -10, 0] }}
           transition={{ repeat: Infinity, duration: 1.2 }}
-          className="mb-2 text-amber-500">
+          className="mb-2 text-amber-500"
+        >
           <FaArrowDown size={30} />
         </motion.div>
       )}
@@ -195,11 +219,12 @@ export default function Home() {
           listening
             ? { scale: [1, 1.05, 1] }
             : speaking
-            ? { rotate: [0, 2, -2, 0] }
-            : {}
+              ? { rotate: [0, 2, -2, 0] }
+              : {}
         }
         transition={{ repeat: Infinity, duration: 1 }}
-        className="px-6 py-3 bg-amber-300 text-black font-bold cursor-pointer rounded-lg shadow-md hover:bg-amber-400 transition">
+        className="px-6 py-3 bg-amber-300 text-black font-bold cursor-pointer rounded-lg shadow-md hover:bg-amber-400 transition"
+      >
         {getButtonText()}
       </motion.button>
     </div>
