@@ -1,33 +1,37 @@
 import { NextRequest } from "next/server";
-import googleTTS from "google-tts-api";
+import sdk from "microsoft-cognitiveservices-speech-sdk";
 
 export async function POST(req: NextRequest) {
   const { text } = await req.json();
 
-  const urls = googleTTS.getAllAudioUrls(text, {
-    lang: "pt",
-    slow: false,
-    host: "https://translate.google.com",
-  });
+  const speechConfig = sdk.SpeechConfig.fromSubscription(
+    process.env.AZURE_SPEECH_KEY!,
+    process.env.AZURE_SPEECH_REGION!,
+  );
+  speechConfig.speechSynthesisLanguage = "pt-BR";
+  speechConfig.speechSynthesisVoiceName = "pt-BR-AntonioNeural";
 
-  const audioBuffers: ArrayBuffer[] = [];
-  for (const { url } of urls) {
-    const audioRes = await fetch(url);
-    const buffer = await audioRes.arrayBuffer();
-    audioBuffers.push(buffer);
-  }
+  return new Promise<Response>((resolve, reject) => {
+    const synthesizer = new sdk.SpeechSynthesizer(speechConfig);
 
-  const totalLength = audioBuffers.reduce((acc, b) => acc + b.byteLength, 0);
-  const mergedBuffer = new Uint8Array(totalLength);
-  let offset = 0;
-  for (const b of audioBuffers) {
-    mergedBuffer.set(new Uint8Array(b), offset);
-    offset += b.byteLength;
-  }
-
-  return new Response(mergedBuffer, {
-    headers: {
-      "Content-Type": "audio/mpeg",
-    },
+    synthesizer.speakTextAsync(
+      text,
+      (result) => {
+        if (result.reason === sdk.ResultReason.SynthesizingAudioCompleted) {
+          resolve(
+            new Response(result.audioData, {
+              headers: { "Content-Type": "audio/mpeg" },
+            }),
+          );
+        } else {
+          reject("Erro na síntese de voz");
+        }
+        synthesizer.close();
+      },
+      (err) => {
+        synthesizer.close();
+        reject(err);
+      },
+    );
   });
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Lottie from "lottie-react";
 import { motion } from "framer-motion";
 import { FaArrowDown, FaRedoAlt } from "react-icons/fa";
@@ -19,83 +19,153 @@ export default function Home() {
   const [listening, setListening] = useState<boolean>(false);
   const [speaking, setSpeaking] = useState<boolean>(false);
   const [recognition, setRecognition] = useState<SpeechRecognition | null>(
-    null
+    null,
   );
+  const autoRespondRef = useRef<boolean>(false);
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
 
   const sendMessage = async (message: string): Promise<void> => {
-    setSpeaking(true);
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message }),
+      });
 
-    const res = await fetch("/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message }),
-    });
+      if (!res.ok) throw new Error("Erro na requisição /api/chat");
 
-    const data: { reply: string } = await res.json();
-    const reply: string = data.reply;
+      const data: { reply: string } = await res.json();
+      const reply: string = data.reply;
 
-    setChat((prev) => [...prev, { role: "assistant", content: reply }]);
+      setChat((prev) => [...prev, { role: "assistant", content: reply }]);
 
-    const ttsRes = await fetch("/api/tts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: reply }),
-    });
+      const ttsRes = await fetch("/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: reply }),
+      });
 
-    const audioBlob = await ttsRes.blob();
-    const audioUrl = URL.createObjectURL(audioBlob);
-    const audio = new Audio(audioUrl);
+      if (!ttsRes.ok) throw new Error("Erro na requisição /api/tts");
 
-    audio.onended = () => {
+      const audioBlob = await ttsRes.blob();
+      const audioUrl = URL.createObjectURL(audioBlob);
+      const audio = new Audio(audioUrl);
+
+      audio.onplay = () => {
+        setSpeaking(true);
+      };
+
+      audio.onended = () => {
+        setSpeaking(false);
+
+        const normalizedReply = reply
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .toLowerCase();
+
+        const palavrasChave = [
+          ["entrada", "showroom", "liberad"], // pega liberada, liberado, liberar...
+          ["entrar", "showroom", "liberad"],
+        ];
+
+        const contemTodasPalavras = (
+          frase: string,
+          grupo: string[],
+        ): boolean => {
+          return grupo.every((palavra: string) => frase.includes(palavra));
+        };
+
+        const devePararAutoResponder = palavrasChave.some((grupo) =>
+          contemTodasPalavras(normalizedReply, grupo),
+        );
+
+        if (devePararAutoResponder) {
+          autoRespondRef.current = false;
+        } else if (autoRespondRef.current) {
+          // Se está em modo auto-responder, pressiona o botão automaticamente
+          setTimeout(() => {
+            if (recognitionRef.current) {
+              recognitionRef.current.abort(); // Encerra qualquer reconhecimento anterior
+              setTimeout(() => {
+                recognitionRef.current?.start();
+                setListening(true);
+              }, 100);
+            }
+          }, 200);
+        } else {
+          // Primeira vez, aguarda o usuário responder
+          if (recognitionRef.current) {
+            recognitionRef.current.abort(); // Encerra qualquer reconhecimento anterior
+            setTimeout(() => {
+              recognitionRef.current?.start();
+              setListening(true);
+            }, 100);
+          }
+        }
+      };
+
+      audio.play();
+    } catch (error) {
+      console.error("Erro em sendMessage:", error);
       setSpeaking(false);
-      if (recognition) {
-        recognition.start();
-        setListening(true);
-      }
-    };
-
-    audio.play();
+      setListening(false);
+    }
   };
 
   const resetConversation = async (): Promise<void> => {
-    await fetch("/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ reset: true }),
-    });
-    setChat([]); // limpa também no frontend
-    setListening(false);
-    setSpeaking(false);
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reset: true }),
+      });
+
+      if (!res.ok) throw new Error("Erro ao resetar conversa");
+
+      setChat([]);
+      setListening(false);
+      setSpeaking(false);
+    } catch (error) {
+      console.error("Erro em resetConversation:", error);
+    }
   };
 
   useEffect(() => {
-    const SpeechRecognitionConstructor =
-      window.SpeechRecognition || window.webkitSpeechRecognition;
+    try {
+      const SpeechRecognitionConstructor =
+        window.SpeechRecognition || window.webkitSpeechRecognition;
 
-    if (SpeechRecognitionConstructor) {
-      const recog: SpeechRecognition = new SpeechRecognitionConstructor();
-      recog.lang = "pt-BR";
-      recog.continuous = false;
-      recog.interimResults = false;
+      if (SpeechRecognitionConstructor) {
+        const recog: SpeechRecognition = new SpeechRecognitionConstructor();
+        recog.lang = "pt-BR";
+        recog.continuous = false;
+        recog.interimResults = false;
 
-      recog.onresult = async (event: SpeechRecognitionEvent) => {
-        const transcript: string = event.results[0][0].transcript;
-        setChat((prev) => [...prev, { role: "user", content: transcript }]);
-        await sendMessage(transcript);
-      };
+        recog.onresult = async (event: SpeechRecognitionEvent) => {
+          const transcript: string = event.results[0][0].transcript;
+          setChat((prev) => [...prev, { role: "user", content: transcript }]);
+          autoRespondRef.current = true;
+          await sendMessage(transcript);
+        };
 
-      recog.onend = () => {
-        setListening(false);
-      };
+        recog.onend = () => {
+          setListening(false);
+        };
 
-      setTimeout(() => setRecognition(recog), 0);
+        setTimeout(() => {
+          setRecognition(recog);
+          recognitionRef.current = recog;
+        }, 0);
+      }
+    } catch (error) {
+      console.error("Erro ao inicializar SpeechRecognition:", error);
     }
   }, []);
 
   const startListening = (): void => {
-    if (recognition) {
+    if (recognitionRef.current) {
       setListening(true);
-      recognition.start();
+      recognitionRef.current.start();
     }
   };
 
@@ -112,12 +182,13 @@ export default function Home() {
   };
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen text-zinc-900 bg-gray-100 p-6">
+    <div className="flex flex-col items-center justify-center min-h-screen text-zinc-900 bg-gray-100 p-6 py-54 relative">
       {/* Ícone de reset no topo */}
       <div className="absolute top-4 right-4">
         <button
           onClick={resetConversation}
-          className="p-2 bg-red-500 text-white rounded-full shadow-md hover:bg-red-600 transition">
+          className="p-2 bg-red-500 text-white cursor-pointer rounded-full shadow-md hover:bg-red-600 transition"
+        >
           <FaRedoAlt size={20} />
         </button>
       </div>
@@ -136,7 +207,8 @@ export default function Home() {
           initial={{ y: -10 }}
           animate={{ y: [0, -10, 0] }}
           transition={{ repeat: Infinity, duration: 1.2 }}
-          className="mb-2 text-amber-500">
+          className="mb-2 text-amber-500"
+        >
           <FaArrowDown size={30} />
         </motion.div>
       )}
@@ -147,11 +219,12 @@ export default function Home() {
           listening
             ? { scale: [1, 1.05, 1] }
             : speaking
-            ? { rotate: [0, 2, -2, 0] }
-            : {}
+              ? { rotate: [0, 2, -2, 0] }
+              : {}
         }
         transition={{ repeat: Infinity, duration: 1 }}
-        className="px-6 py-3 bg-amber-300 text-black font-bold cursor-pointer rounded-lg shadow-md hover:bg-amber-400 transition">
+        className="px-6 py-3 bg-amber-300 text-black font-bold cursor-pointer rounded-lg shadow-md hover:bg-amber-400 transition"
+      >
         {getButtonText()}
       </motion.button>
     </div>
