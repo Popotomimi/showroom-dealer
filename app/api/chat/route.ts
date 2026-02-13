@@ -13,7 +13,7 @@ export async function POST(req: Request) {
       conversationHistory = [];
       return new Response(
         JSON.stringify({ message: "Histórico resetado com sucesso!" }),
-        { status: 200 }
+        { status: 200 },
       );
     }
 
@@ -32,6 +32,7 @@ export async function POST(req: Request) {
     const prompt = `
       Você é a IA da empresa Dealer. 
       Sua função é receber visitantes no showroom de forma simpática e profissional.
+      Se o usuário perguntar sobre algo que não seja relacionado aos produtos ou ao showroom, responda de forma educada que só pode ajudar com informações sobre a Dealer e seus produtos.
       Nossos produtos: 
       - Vigilância Inteligente (câmeras de segurança com análise por IA)
       - Vigilância Smart City (para monitoramento urbano)
@@ -65,13 +66,13 @@ export async function POST(req: Request) {
         reply: responseText,
         history: conversationHistory,
       }),
-      { status: 200 }
+      { status: 200 },
     );
   } catch (err) {
     console.error(err);
     return new Response(
       JSON.stringify({ message: "Failed to get AI response" }),
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
