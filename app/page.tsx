@@ -17,15 +17,19 @@ interface ChatMessage {
 export default function Home() {
   const [chat, setChat] = useState<ChatMessage[]>([]);
   const [listening, setListening] = useState<boolean>(false);
+  const [nome, setNome] = useState<string>("");
   const [speaking, setSpeaking] = useState<boolean>(false);
   const [recognition, setRecognition] = useState<SpeechRecognition | null>(
     null,
   );
   const autoRespondRef = useRef<boolean>(false);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const [conversaAtiva, setConversaAtiva] = useState(false);
+  const [processando, setProcessando] = useState(false);
 
   const sendMessage = async (message: string): Promise<void> => {
     try {
+      setProcessando(true);
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -53,6 +57,7 @@ export default function Home() {
 
       audio.onplay = () => {
         setSpeaking(true);
+        setProcessando(false);
       };
 
       audio.onended = () => {
@@ -64,7 +69,7 @@ export default function Home() {
           .toLowerCase();
 
         const palavrasChave = [
-          ["entrada", "showroom", "liberad"], // pega liberada, liberado, liberar...
+          ["entrada", "showroom", "liberad"],
           ["entrar", "showroom", "liberad"],
         ];
 
@@ -81,11 +86,15 @@ export default function Home() {
 
         if (devePararAutoResponder) {
           autoRespondRef.current = false;
+          setConversaAtiva(false);
+
+          setTimeout(() => {
+            resetConversation();
+          }, 2000);
         } else if (autoRespondRef.current) {
-          // Se está em modo auto-responder, pressiona o botão automaticamente
           setTimeout(() => {
             if (recognitionRef.current) {
-              recognitionRef.current.abort(); // Encerra qualquer reconhecimento anterior
+              recognitionRef.current.abort();
               setTimeout(() => {
                 recognitionRef.current?.start();
                 setListening(true);
@@ -93,9 +102,8 @@ export default function Home() {
             }
           }, 200);
         } else {
-          // Primeira vez, aguarda o usuário responder
           if (recognitionRef.current) {
-            recognitionRef.current.abort(); // Encerra qualquer reconhecimento anterior
+            recognitionRef.current.abort();
             setTimeout(() => {
               recognitionRef.current?.start();
               setListening(true);
@@ -106,6 +114,7 @@ export default function Home() {
 
       audio.play();
     } catch (error) {
+      setProcessando(false);
       console.error("Erro em sendMessage:", error);
       setSpeaking(false);
       setListening(false);
@@ -125,6 +134,7 @@ export default function Home() {
       setChat([]);
       setListening(false);
       setSpeaking(false);
+      setConversaAtiva(false);
     } catch (error) {
       console.error("Erro em resetConversation:", error);
     }
@@ -202,31 +212,44 @@ export default function Home() {
         <Lottie animationData={getAnimation()} loop={true} />
       </div>
 
-      {!listening && !speaking && (
-        <motion.div
-          initial={{ y: -10 }}
-          animate={{ y: [0, -10, 0] }}
-          transition={{ repeat: Infinity, duration: 1.2 }}
-          className="mb-2 text-amber-500"
-        >
-          <FaArrowDown size={30} />
-        </motion.div>
+      {processando && (
+        <div className="mb-4 text-lg text-blue-500 font-semibold animate-pulse">
+          Processando resposta...
+        </div>
       )}
 
-      <motion.button
-        onClick={startListening}
-        animate={
-          listening
-            ? { scale: [1, 1.05, 1] }
-            : speaking
-              ? { rotate: [0, 2, -2, 0] }
-              : {}
-        }
-        transition={{ repeat: Infinity, duration: 1 }}
-        className="px-6 py-3 bg-amber-300 text-black font-bold cursor-pointer rounded-lg shadow-md hover:bg-amber-400 transition"
-      >
-        {getButtonText()}
-      </motion.button>
+      {!conversaAtiva && (
+        <>
+          {!listening && !speaking && (
+            <motion.div
+              initial={{ y: -10 }}
+              animate={{ y: [0, -10, 0] }}
+              transition={{ repeat: Infinity, duration: 1.2 }}
+              className="mb-2 text-amber-500"
+            >
+              <FaArrowDown size={30} />
+            </motion.div>
+          )}
+          <motion.button
+            onClick={() => {
+              setConversaAtiva(true);
+              autoRespondRef.current = true;
+              startListening();
+            }}
+            animate={
+              listening
+                ? { scale: [1, 1.05, 1] }
+                : speaking
+                  ? { rotate: [0, 2, -2, 0] }
+                  : {}
+            }
+            transition={{ repeat: Infinity, duration: 1 }}
+            className="px-6 py-3 bg-amber-300 text-black font-bold cursor-pointer rounded-lg shadow-md hover:bg-amber-400 transition"
+          >
+            {getButtonText()}
+          </motion.button>
+        </>
+      )}
     </div>
   );
 }
