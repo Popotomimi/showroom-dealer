@@ -18,6 +18,10 @@ export default function Home() {
   const [chat, setChat] = useState<ChatMessage[]>([]);
   const [listening, setListening] = useState<boolean>(false);
   const [nome, setNome] = useState<string>("");
+  const [produto, setProduto] = useState<string>("");
+  const nomeRef = useRef<string>("");
+  const produtoRef = useRef<string>("");
+  const ultimaMensagemIARef = useRef<string>("");
   const [speaking, setSpeaking] = useState<boolean>(false);
   const [recognition, setRecognition] = useState<SpeechRecognition | null>(
     null,
@@ -27,7 +31,11 @@ export default function Home() {
   const [conversaAtiva, setConversaAtiva] = useState(false);
   const [processando, setProcessando] = useState(false);
 
-  const sendMessage = async (message: string): Promise<void> => {
+  const sendMessage = async (
+    message: string,
+    nomeAtual?: string,
+    produtoAtual?: string,
+  ): Promise<void> => {
     try {
       setProcessando(true);
       const res = await fetch("/api/chat", {
@@ -42,6 +50,7 @@ export default function Home() {
       const reply: string = data.reply;
 
       setChat((prev) => [...prev, { role: "assistant", content: reply }]);
+      ultimaMensagemIARef.current = reply;
 
       const ttsRes = await fetch("/api/tts", {
         method: "POST",
@@ -87,6 +96,16 @@ export default function Home() {
         if (devePararAutoResponder) {
           autoRespondRef.current = false;
           setConversaAtiva(false);
+          // Salvar no banco usando refs para garantir valores corretos
+          fetch("/api/interacao", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              nome: nomeRef.current,
+              produto: produtoRef.current,
+              dataHora: new Date().toISOString(),
+            }),
+          });
 
           setTimeout(() => {
             resetConversation();
@@ -155,6 +174,22 @@ export default function Home() {
           const transcript: string = event.results[0][0].transcript;
           setChat((prev) => [...prev, { role: "user", content: transcript }]);
           autoRespondRef.current = true;
+
+          // Use a última mensagem da IA para decidir o contexto
+          if (ultimaMensagemIARef.current.toLowerCase().includes("seu nome")) {
+            nomeRef.current = transcript;
+            setNome(transcript);
+          }
+
+          if (
+            ultimaMensagemIARef.current
+              .toLowerCase()
+              .includes("qual tipo de produto")
+          ) {
+            produtoRef.current = transcript;
+            setProduto(transcript);
+          }
+
           await sendMessage(transcript);
         };
 
@@ -215,6 +250,12 @@ export default function Home() {
       {processando && (
         <div className="mb-4 text-lg text-blue-500 font-semibold animate-pulse">
           Processando resposta...
+        </div>
+      )}
+
+      {listening && (
+        <div className="mb-4 text-lg text-blue-500 font-semibold animate-pulse">
+          Ouvindo...
         </div>
       )}
 
