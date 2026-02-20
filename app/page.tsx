@@ -125,6 +125,10 @@ export default function Home() {
             }),
           });
 
+          fetch("/api/catraca", {
+            method: "GET",
+          });
+
           setTimeout(() => {
             resetConversation();
           }, 2000);
